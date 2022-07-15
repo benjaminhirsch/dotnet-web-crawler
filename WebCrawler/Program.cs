@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Net;
 using ConsoleTables;
 using HtmlAgilityPack;
@@ -11,36 +12,39 @@ internal static class Program
     private static readonly Queue<string?>? UrlsToParse = new();
     private static readonly List<Url> ParsedUrls = new();
     private static string _domain = null!;
+    private static readonly List<KeyValuePair<string, string>> failedUrls = new();
 
     public static void Main(string?[] args)
     {
-        if (args.Length <= 0) throw new Exception("Missing URL to parse, unable to proceed");
+        if (args.Length <= 0)
+        {
+            Console.WriteLine("Missing URL to parse, unable to proceed");
+            return;
+        }
 
         UrlsToParse?.Enqueue(args[0]);
         _domain = args[0] ?? throw new InvalidOperationException();
 
+        var watch = Stopwatch.StartNew();
         while (UrlsToParse!.Count > 0)
         {
             var url = UrlsToParse.Dequeue();
 
-            if (url == null)
-            {
-                throw new Exception("Unable to dequeue url");
-            }
+            if (url == null) throw new Exception("Unable to dequeue url");
 
             FetchUrl(url);
+            Console.SetCursorPosition(0, Console.CursorTop);
             Console.Write("\r{0}%", url);
         }
-        
-        Console.WriteLine("");
-        Console.WriteLine("");
-        
-        Console.WriteLine("Parsed " + ParsedUrls.Count + " Urls total");
+
+        watch.Stop();
+        var elapsedMs = watch.Elapsed;
+
+        Console.WriteLine("\n\nParsed " + ParsedUrls.Count + " Urls total\n\n");
 
         var statusCodes = new OrderedDictionary();
-        
+
         foreach (var parsedUrl in ParsedUrls)
-        {
             if (!statusCodes.Contains(parsedUrl.statusCode.ToString()))
             {
                 statusCodes[parsedUrl.statusCode.ToString()] = 1;
@@ -48,18 +52,39 @@ internal static class Program
             else
             {
                 var currentCount = Convert.ToInt32(statusCodes[parsedUrl.statusCode.ToString()]!.ToString());
-                statusCodes[parsedUrl.statusCode.ToString()] =  currentCount + 1 ;
+                statusCodes[parsedUrl.statusCode.ToString()] = currentCount + 1;
             }
+
+
+        var table = new ConsoleTable("Status Code", "Quantity");
+        foreach (DictionaryEntry statusCode in statusCodes) table.AddRow(statusCode.Key, statusCode.Value);
+
+        table.Write(Format.Alternative);
+
+        if (ParsedUrls.Exists(u => u.statusCode == HttpStatusCode.NotFound))
+        {
+            Console.WriteLine("\n\nURLs not found (404):");
+            Console.WriteLine("----------------------------------------");
+
+            var notFoundTable = new ConsoleTable("URL", "Status Code");
+            foreach (var url in ParsedUrls.Where(u => u.statusCode == HttpStatusCode.NotFound))
+                notFoundTable.AddRow(url.url, url.statusCode);
+            notFoundTable.Write(Format.Alternative);
         }
 
-        
-        var table = new ConsoleTable("Status Code", "Quantity");
-        foreach (DictionaryEntry statusCode in statusCodes)
+        if (failedUrls.Count > 0)
         {
-            table.AddRow(statusCode.Key, statusCode.Value);
+            Console.WriteLine("\n\nFailed URLs:");
+            Console.WriteLine("----------------------------------------");
+
+            var errorTable = new ConsoleTable("URL", "Error");
+            foreach (var urlAndError in failedUrls) errorTable.AddRow(urlAndError.Key, urlAndError.Value);
+            errorTable.Write(Format.Alternative);
         }
-        
-        table.Write();
+
+        var elapsedTime =
+            $"{elapsedMs.Hours:00}:{elapsedMs.Minutes:00}:{elapsedMs.Seconds:00}.{elapsedMs.Milliseconds / 10:00}";
+        Console.WriteLine("\n\nTotal execution time: {0}", elapsedTime);
     }
 
     private static void FetchUrl(string url)
@@ -92,24 +117,22 @@ internal static class Program
                         !ParsedUrls.Exists(u => u.url == normalizedUrl) &&
                         UrlsToParse != null &&
                         !UrlsToParse.Contains(normalizedUrl))
-                    {
                         UrlsToParse?.Enqueue(normalizedUrl);
-                    }
                 }
         }
-        catch (UriFormatException _)
+        catch (UriFormatException e)
         {
-            Console.WriteLine(url);
+            failedUrls.Add(new KeyValuePair<string, string>(url, e.Message));
         }
     }
 
     private static bool IsValid(string? url)
     {
-        return url != null && 
+        return url != null &&
                !url.Contains('#') &&
                !url.Contains("tel:") &&
                !url.Contains("mailto:") &&
-               !url.StartsWith("javascript:") &&
+               !url.Contains("javascript:") &&
                url.StartsWith(_domain) &&
                url.Length > 0;
     }
@@ -119,10 +142,7 @@ internal static class Program
         if (!url.StartsWith(_domain))
         {
             // External URL
-            if (url.StartsWith("http"))
-            {
-                return url;
-            }
+            if (url.StartsWith("http")) return url;
             return _domain + url;
         }
 

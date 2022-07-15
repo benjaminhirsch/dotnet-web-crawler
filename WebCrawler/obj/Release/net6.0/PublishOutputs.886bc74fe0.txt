@@ -1,0 +1,7 @@
+/home/benjamin/RiderProjects/WebCrawler/WebCrawler/bin/Release/net6.0/publish/WebCrawler
+/home/benjamin/RiderProjects/WebCrawler/WebCrawler/bin/Release/net6.0/publish/WebCrawler.dll
+/home/benjamin/RiderProjects/WebCrawler/WebCrawler/bin/Release/net6.0/publish/WebCrawler.deps.json
+/home/benjamin/RiderProjects/WebCrawler/WebCrawler/bin/Release/net6.0/publish/WebCrawler.runtimeconfig.json
+/home/benjamin/RiderProjects/WebCrawler/WebCrawler/bin/Release/net6.0/publish/WebCrawler.pdb
+/home/benjamin/RiderProjects/WebCrawler/WebCrawler/bin/Release/net6.0/publish/ConsoleTables.dll
+/home/benjamin/RiderProjects/WebCrawler/WebCrawler/bin/Release/net6.0/publish/HtmlAgilityPack.dll
