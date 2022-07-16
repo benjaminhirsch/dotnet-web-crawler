@@ -96,7 +96,7 @@ internal static class Program
 
     private static void FetchUrl(string url)
     {
-        url = NormalizeUrl(url);
+        if (!IsValid(url)) return;
 
         var web = new HtmlWeb();
         var statusCode = HttpStatusCode.OK;
@@ -115,13 +115,14 @@ internal static class Program
             // Add parsed Url
             ParsedUrls.Add(new Url(url, statusCode));
 
-            if (hrefTags != null)
-                foreach (var normalizedUrl in hrefTags.Select(NormalizeUrl).Where(normalizedUrl =>
-                             IsValid(normalizedUrl) &&
-                             !ParsedUrls.Exists(u => u.url == normalizedUrl) &&
-                             UrlsToParse != null &&
-                             !UrlsToParse.Contains(normalizedUrl)))
-                    UrlsToParse?.Enqueue(normalizedUrl);
+            if (hrefTags == null) return;
+
+            foreach (var newUrl in hrefTags.Select(NormalizeUrl).Where(newUrl =>
+                         IsValid(newUrl) &&
+                         !ParsedUrls.Exists(u => u.url == newUrl) &&
+                         UrlsToParse != null &&
+                         !UrlsToParse.Contains(newUrl)))
+                UrlsToParse?.Enqueue(newUrl);
         }
         catch (UriFormatException e)
         {
@@ -133,20 +134,20 @@ internal static class Program
     {
         return url != null &&
                url.StartsWith(_domain) &&
-               url.Length > 0;
+               Uri.TryCreate(url, UriKind.RelativeOrAbsolute, out var uriResult)
+               && (uriResult.Scheme == Uri.UriSchemeHttp || uriResult.Scheme == Uri.UriSchemeHttps);
     }
 
-    private static string NormalizeUrl(string url)
+    private static string? NormalizeUrl(string url)
     {
         if (url.StartsWith(_domain)) return url;
 
         // External or already full qualified URL
         if (url.StartsWith("http://") || url.StartsWith("https://")) return url;
 
-        // Non HTTP URL found
-        if ((url.Contains("://") && !url.StartsWith("http")) || url.StartsWith("mailto:")) return url;
+        if (url.ToCharArray()[0].ToString() == "/") return _domain + url;
 
-        return _domain + url;
+        return null;
     }
 
     private static string GetSpinner(int round)
