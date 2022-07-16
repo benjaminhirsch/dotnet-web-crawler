@@ -34,7 +34,8 @@ internal static class Program
 
             FetchUrl(url);
             Console.SetCursorPosition(0, Console.CursorTop);
-            Console.Write("\r{0}%", url);
+            //Console.Write("{0}\r", url);
+            Console.Write(GetSpinner(UrlsToParse!.Count % 4));
         }
 
         watch.Stop();
@@ -131,23 +132,32 @@ internal static class Program
     private static bool IsValid(string? url)
     {
         return url != null &&
-               !url.Contains('#') &&
-               !url.Contains("tel:") &&
-               !url.Contains("mailto:") &&
-               !url.Contains("javascript:") &&
                url.StartsWith(_domain) &&
                url.Length > 0;
     }
 
     private static string NormalizeUrl(string url)
     {
-        if (!url.StartsWith(_domain))
-        {
-            // External or already full qualified URL
-            if (url.StartsWith("http")) return url;
-            return _domain + url;
-        }
+        if (url.StartsWith(_domain)) return url;
 
-        return url;
+        // External or already full qualified URL
+        if (url.StartsWith("http://") || url.StartsWith("https://")) return url;
+
+        // Non HTTP URL found
+        if ((url.Contains("://") && !url.StartsWith("http")) || url.StartsWith("mailto:")) return url;
+
+        return _domain + url;
+    }
+
+    private static string GetSpinner(int round)
+    {
+        return "Working: " + round switch
+        {
+            0 => "|\r",
+            1 => "/\r",
+            2 => "-\r",
+            3 => "\\\r",
+            _ => throw new ArgumentOutOfRangeException(nameof(round), round, null)
+        };
     }
 }
