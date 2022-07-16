@@ -42,21 +42,9 @@ internal static class Program
 
         Console.WriteLine("\n\nParsed " + ParsedUrls.Count + " Urls total\n\n");
 
-        var statusCodes = new OrderedDictionary();
-
-        foreach (var parsedUrl in ParsedUrls)
-            if (!statusCodes.Contains(parsedUrl.statusCode.ToString()))
-            {
-                statusCodes[parsedUrl.statusCode.ToString()] = 1;
-            }
-            else
-            {
-                var currentCount = Convert.ToInt32(statusCodes[parsedUrl.statusCode.ToString()]!.ToString());
-                statusCodes[parsedUrl.statusCode.ToString()] = currentCount + 1;
-            }
-
-
+        var statusCodes = CalculateStatusCodes();
         var table = new ConsoleTable("Status Code", "Quantity");
+
         foreach (DictionaryEntry statusCode in statusCodes) table.AddRow(statusCode.Key, statusCode.Value);
 
         table.Write(Format.Alternative);
@@ -85,6 +73,24 @@ internal static class Program
         var elapsedTime =
             $"{elapsedMs.Hours:00}:{elapsedMs.Minutes:00}:{elapsedMs.Seconds:00}.{elapsedMs.Milliseconds / 10:00}";
         Console.WriteLine("\n\nTotal execution time: {0}", elapsedTime);
+    }
+
+    private static OrderedDictionary CalculateStatusCodes()
+    {
+        var statusCodes = new OrderedDictionary();
+
+        foreach (var parsedUrl in ParsedUrls)
+            if (!statusCodes.Contains(parsedUrl.statusCode.ToString()))
+            {
+                statusCodes[parsedUrl.statusCode.ToString()] = 1;
+            }
+            else
+            {
+                var currentCount = Convert.ToInt32(statusCodes[parsedUrl.statusCode.ToString()]!.ToString());
+                statusCodes[parsedUrl.statusCode.ToString()] = currentCount + 1;
+            }
+
+        return statusCodes;
     }
 
     private static void FetchUrl(string url)
