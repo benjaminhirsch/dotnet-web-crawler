@@ -12,7 +12,7 @@ internal static class Program
     private static readonly Queue<string?>? UrlsToParse = new();
     private static readonly List<Url> ParsedUrls = new();
     private static string _domain = null!;
-    private static readonly List<KeyValuePair<string, string>> failedUrls = new();
+    private static readonly List<KeyValuePair<string, string>> FailedUrls = new();
 
     public static void Main(string?[] args)
     {
@@ -72,13 +72,13 @@ internal static class Program
             notFoundTable.Write(Format.Alternative);
         }
 
-        if (failedUrls.Count > 0)
+        if (FailedUrls.Count > 0)
         {
             Console.WriteLine("\n\nFailed URLs:");
             Console.WriteLine("----------------------------------------");
 
             var errorTable = new ConsoleTable("URL", "Error");
-            foreach (var urlAndError in failedUrls) errorTable.AddRow(urlAndError.Key, urlAndError.Value);
+            foreach (var urlAndError in FailedUrls) errorTable.AddRow(urlAndError.Key, urlAndError.Value);
             errorTable.Write(Format.Alternative);
         }
 
@@ -109,20 +109,16 @@ internal static class Program
             ParsedUrls.Add(new Url(url, statusCode));
 
             if (hrefTags != null)
-                foreach (var tag in hrefTags)
-                {
-                    var normalizedUrl = NormalizeUrl(tag);
-
-                    if (IsValid(normalizedUrl) &&
-                        !ParsedUrls.Exists(u => u.url == normalizedUrl) &&
-                        UrlsToParse != null &&
-                        !UrlsToParse.Contains(normalizedUrl))
-                        UrlsToParse?.Enqueue(normalizedUrl);
-                }
+                foreach (var normalizedUrl in hrefTags.Select(NormalizeUrl).Where(normalizedUrl =>
+                             IsValid(normalizedUrl) &&
+                             !ParsedUrls.Exists(u => u.url == normalizedUrl) &&
+                             UrlsToParse != null &&
+                             !UrlsToParse.Contains(normalizedUrl)))
+                    UrlsToParse?.Enqueue(normalizedUrl);
         }
         catch (UriFormatException e)
         {
-            failedUrls.Add(new KeyValuePair<string, string>(url, e.Message));
+            FailedUrls.Add(new KeyValuePair<string, string>(url, e.Message));
         }
     }
 
@@ -141,7 +137,7 @@ internal static class Program
     {
         if (!url.StartsWith(_domain))
         {
-            // External URL
+            // External or already full qualified URL
             if (url.StartsWith("http")) return url;
             return _domain + url;
         }
