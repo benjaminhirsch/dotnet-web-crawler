@@ -11,8 +11,6 @@ namespace WebCrawler;
 internal static class Program
 {
     private static readonly ConcurrentQueue<string?>? UrlsToParse = new();
-
-    //private static readonly <string, Url> ParsedUrls = new();
     private static readonly ConcurrentDictionary<string, Url> ParsedUrls = new();
     private static string _domain = null!;
     private static readonly ConcurrentDictionary<string, string> FailedUrls = new();
