@@ -1,4 +1,5 @@
 ﻿using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Net;
@@ -9,10 +10,13 @@ namespace WebCrawler;
 
 internal static class Program
 {
-    private static readonly Queue<string?>? UrlsToParse = new();
-    private static readonly List<Url> ParsedUrls = new();
+    private static readonly ConcurrentQueue<string?>? UrlsToParse = new();
+
+    //private static readonly <string, Url> ParsedUrls = new();
+    private static readonly ConcurrentDictionary<string, Url> ParsedUrls = new();
     private static string _domain = null!;
-    private static readonly List<KeyValuePair<string, string>> FailedUrls = new();
+    private static readonly ConcurrentDictionary<string, string> FailedUrls = new();
+    private static bool _doneEnqueueing;
 
     public static void Main(string?[] args)
     {
@@ -22,20 +26,32 @@ internal static class Program
             return;
         }
 
-        UrlsToParse?.Enqueue(args[0]);
-        _domain = args[0] ?? throw new InvalidOperationException();
+        // Normalize domain (e.g. remove trailing slash)
+        var rawDomain = args[0] ?? throw new InvalidOperationException();
+        _domain = rawDomain.EndsWith("/") ? rawDomain.Remove(rawDomain.Length - 1) : rawDomain;
 
+        UrlsToParse?.Enqueue(_domain);
         var watch = Stopwatch.StartNew();
-        while (UrlsToParse!.Count > 0)
+
+
+        const int taskCount = 10;
+        var workers = new Task[taskCount];
+
+        for (var i = 0; i < taskCount; ++i)
         {
-            var url = UrlsToParse.Dequeue();
+            var workerId = i;
+            var task = new Task(() => Worker(workerId));
+            workers[i] = task;
+            task.Start();
+        }
 
-            if (url == null) throw new Exception("Unable to dequeue url");
-
-            FetchUrl(url);
-            Console.SetCursorPosition(0, Console.CursorTop);
-            //Console.Write("{0}\r", url);
-            Console.Write(GetSpinner(UrlsToParse!.Count % 4));
+        try
+        {
+            Task.WaitAll(workers);
+        }
+        catch (AggregateException ex)
+        {
+            Console.WriteLine(ex);
         }
 
         watch.Stop();
@@ -50,14 +66,14 @@ internal static class Program
 
         table.Write(Format.Alternative);
 
-        if (ParsedUrls.Exists(u => u.statusCode == HttpStatusCode.NotFound))
+        if (ParsedUrls.Any(u => u.Value.statusCode == HttpStatusCode.NotFound))
         {
             Console.WriteLine("\n\nURLs not found (404):");
             Console.WriteLine("----------------------------------------");
 
             var notFoundTable = new ConsoleTable("URL", "Status Code");
-            foreach (var url in ParsedUrls.Where(u => u.statusCode == HttpStatusCode.NotFound))
-                notFoundTable.AddRow(url.url, url.statusCode);
+            foreach (var url in ParsedUrls.Where(u => u.Value.statusCode == HttpStatusCode.NotFound))
+                notFoundTable.AddRow(url.Key, url.Value.statusCode);
             notFoundTable.Write(Format.Alternative);
         }
 
@@ -76,27 +92,44 @@ internal static class Program
         Console.WriteLine("\n\nTotal execution time: {0}", elapsedTime);
     }
 
+    private static void Worker(int workerId)
+    {
+        Console.WriteLine("Worker {0} is starting.", workerId);
+        do
+        {
+            while (UrlsToParse != null && UrlsToParse.TryDequeue(out var url))
+            {
+                //Console.WriteLine("Worker {0} is processing item {1}", workerId, op);
+                FetchUrl(url);
+                Console.SetCursorPosition(0, Console.CursorTop);
+                Console.Write(GetSpinner(UrlsToParse.Count % 4));
+            }
+        } while (!Volatile.Read(ref _doneEnqueueing) || !UrlsToParse!.IsEmpty);
+
+        Console.WriteLine("Worker {0} is stopping.", workerId);
+    }
+
     private static OrderedDictionary CalculateStatusCodes()
     {
         var statusCodes = new OrderedDictionary();
 
         foreach (var parsedUrl in ParsedUrls)
-            if (!statusCodes.Contains(parsedUrl.statusCode.ToString()))
+            if (!statusCodes.Contains(parsedUrl.Value.statusCode.ToString()))
             {
-                statusCodes[parsedUrl.statusCode.ToString()] = 1;
+                statusCodes[parsedUrl.Value.statusCode.ToString()] = 1;
             }
             else
             {
-                var currentCount = Convert.ToInt32(statusCodes[parsedUrl.statusCode.ToString()]!.ToString());
-                statusCodes[parsedUrl.statusCode.ToString()] = currentCount + 1;
+                var currentCount = Convert.ToInt32(statusCodes[parsedUrl.Value.statusCode.ToString()]!.ToString());
+                statusCodes[parsedUrl.Value.statusCode.ToString()] = currentCount + 1;
             }
 
         return statusCodes;
     }
 
-    private static void FetchUrl(string url)
+    private static void FetchUrl(string? url)
     {
-        if (!IsValid(url)) return;
+        if (url == null || !IsValid(url)) return;
 
         var web = new HtmlWeb();
         var statusCode = HttpStatusCode.OK;
@@ -113,20 +146,22 @@ internal static class Program
                 .Select(att => att.Value).ToList();
 
             // Add parsed Url
-            ParsedUrls.Add(new Url(url, statusCode));
+            ParsedUrls.TryAdd(url, new Url(url, statusCode));
 
-            if (hrefTags == null) return;
 
-            foreach (var newUrl in hrefTags.Select(NormalizeUrl).Where(newUrl =>
-                         IsValid(newUrl) &&
-                         !ParsedUrls.Exists(u => u.url == newUrl) &&
-                         UrlsToParse != null &&
-                         !UrlsToParse.Contains(newUrl)))
-                UrlsToParse?.Enqueue(newUrl);
+            if (hrefTags != null && hrefTags.Count > 0)
+                foreach (var newUrl in hrefTags.Select(NormalizeUrl).Where(newUrl =>
+                             IsValid(newUrl) &&
+                             !ParsedUrls.Any(u => u.Key == newUrl) &&
+                             UrlsToParse != null &&
+                             !UrlsToParse.Contains(newUrl)))
+                    UrlsToParse?.Enqueue(newUrl);
+
+            if (UrlsToParse!.IsEmpty) Volatile.Write(ref _doneEnqueueing, true);
         }
         catch (UriFormatException e)
         {
-            FailedUrls.Add(new KeyValuePair<string, string>(url, e.Message));
+            FailedUrls.TryAdd(url, e.Message);
         }
     }
 
@@ -140,12 +175,15 @@ internal static class Program
 
     private static string? NormalizeUrl(string url)
     {
+        // Internal URL
         if (url.StartsWith(_domain)) return url;
 
         // External or already full qualified URL
         if (url.StartsWith("http://") || url.StartsWith("https://")) return url;
 
-        if (url.ToCharArray()[0].ToString() == "/") return _domain + url;
+        if (url.StartsWith("/")) return _domain + url;
+
+        if (url.Length > 1 && !url.StartsWith("/") && !url.Contains(":")) return _domain + "/" + url;
 
         return null;
     }
